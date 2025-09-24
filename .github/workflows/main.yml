@@ -86,19 +86,28 @@ jobs:
           Write-Host "Password: kamran@786"
           Write-Host "==================`n"
 
+          # Ensure backup folder exists
           New-Item -ItemType Directory -Force -Path C:\RDPData | Out-Null
 
           $iteration = 0
           while ($true) {
               Write-Host "[$(Get-Date)] RDP Active - Iteration $iteration"
 
+              # Create backup zip
               $zipPath = "$env:TEMP\RDPData.zip"
               if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
               Compress-Archive -Path C:\RDPData\* -DestinationPath $zipPath -Force -ErrorAction SilentlyContinue
 
+              # Upload artifact each cycle
               Write-Host "Uploading RDPData snapshot..."
               echo "##[group]Upload iteration $iteration"
               echo "##[endgroup]"
+
+              # Use upload-artifact action
+              & curl -s -X POST -H "Authorization: Bearer $env:ACTIONS_RUNTIME_TOKEN" `
+                -H "Content-Type: application/zip" `
+                --data-binary "@$zipPath" `
+                "$env:ACTIONS_RUNTIME_URL/_apis/pipelines/workflows/$env:GITHUB_RUN_ID/artifacts?artifactName=rdp-data&api-version=6.0-preview"
 
               $iteration++
               Start-Sleep -Seconds 300
@@ -110,18 +119,3 @@ jobs:
         with:
           name: rdp-data
           path: C:\RDPData
-
-      - name: Auto-Restart Workflow
-        if: always()
-        run: |
-          Write-Host "Re-triggering workflow for auto-restart..."
-          $headers = @{
-            "Accept" = "application/vnd.github+json"
-            "Authorization" = "Bearer $env:GITHUB_TOKEN"
-            "X-GitHub-Api-Version" = "2022-11-28"
-          }
-          $body = @{}
-          Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/workflows/${{ github.workflow }}.yml/dispatches" `
-                            -Headers $headers `
-                            -Method Post `
-                            -Body (@{ref="${{ github.ref }}"} | ConvertTo-Json)
